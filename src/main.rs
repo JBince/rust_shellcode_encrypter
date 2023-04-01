@@ -9,14 +9,21 @@ fn main() {
 
     //Check that key is 32 bytes long
     let mut key = [0u8; 32];
+
     if args.key.len() < 32 || args.key.len() > 32 {
-        println!("[!] Your key is {} bytes long. It must be 32 bytes long to accommodate AES-256. Using default key 'This is a key and it's 32 bytes!'", args.key.len());
+        println!("[!] Your key is {} bytes long. It must be 32 bytes long to accommodate AES-256.", args.key.len());
         std::process::exit(1);
     } else {
         key.copy_from_slice(args.key.as_bytes());
     }
 
-    //Set key & IV
+    //Check that IV is 16 bytes long
+    if args.iv.len() < 16  {
+        println!("[!] Your IV is {} bytes long. It must be at least 16 bytes long to accommodate AES-256.", args.iv.len());
+        std::process::exit(1);
+    } 
+
+    //Set IV and create cipher for decryption
     let iv = args.iv.as_bytes();
     let cipher = Cipher::new_256(&key);
 
@@ -24,7 +31,13 @@ fn main() {
     let input_file = args.input_file;
 
     //Read into buffer
-    let mut f = File::open(&input_file).unwrap();
+    let mut f = match File::open(&input_file) {
+        Ok(f) => f,
+        Err(e) => {
+            println!("[!] Could not open file: {}", e);
+            std::process::exit(1);
+        }
+    };
     let metadata = std::fs::metadata(&input_file).unwrap();
     let mut buffer: Vec<u8> = vec![0; metadata.len() as usize];
     f.read(&mut buffer).unwrap();
@@ -33,11 +46,29 @@ fn main() {
     let shellcode = &buffer[..];
 
     //Encrypt the shellcode buffer
-    let ciphertext = cipher.cbc_encrypt(iv, shellcode);
-    let mut out_file = File::create(args.output_file).unwrap();
+    let ciphertext = match Some(cipher.cbc_encrypt(iv, shellcode)) {
+        Some(c) => c,
+        None => {
+            println!("[!] Could not encrypt shellcode");
+            std::process::exit(1);
+        }
+    };
+    let mut out_file = match File::create(&args.output_file){
+        Ok(f) => f,
+        Err(e) => {
+            println!("[!] Could not create file: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     //Write it to desired file
-    out_file.write_all(&ciphertext).unwrap();
+    match out_file.write_all(&ciphertext){
+        Ok(_) => println!("[+] Encrypted shellcode written to file {}", &args.output_file),
+        Err(e) => {
+            println!("[!] Could not write to file: {}", e);
+            std::process::exit(1);
+        }
+    };
 }
 
 //Parse arguments
